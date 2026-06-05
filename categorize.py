@@ -230,14 +230,22 @@ def unique_dest(dest: Path) -> Path:
 # Progress tracking (so the run is resumable)
 # ---------------------------------------------------------------------------
 
-def load_progress() -> set[str]:
+def load_progress() -> tuple[set[str], int]:
+    """Returns (processed_paths, cumulative_tokens_used)."""
     if PROGRESS_FILE.exists():
-        return set(json.loads(PROGRESS_FILE.read_text()))
-    return set()
+        data = json.loads(PROGRESS_FILE.read_text())
+        if isinstance(data, list):
+            # migrate old format (plain list of paths)
+            return set(data), 0
+        return set(data.get("processed", [])), int(data.get("tokens_used", 0))
+    return set(), 0
 
 
-def save_progress(processed: set[str]) -> None:
-    PROGRESS_FILE.write_text(json.dumps(list(processed)))
+def save_progress(processed: set[str], tokens_used: int) -> None:
+    PROGRESS_FILE.write_text(json.dumps({
+        "processed": list(processed),
+        "tokens_used": tokens_used,
+    }))
 
 
 # ---------------------------------------------------------------------------
