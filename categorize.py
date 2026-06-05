@@ -409,7 +409,7 @@ def run_command(dry_run: bool) -> None:
     categories = load_categories()
     valid_categories = set(categories) | {"_Unsorted", "_Other"}
     client = anthropic.Anthropic()
-    processed = load_progress()
+    processed, _ = load_progress()
 
     label = "DRY RUN — no files will be moved" if dry_run else "LIVE RUN — files will be moved"
     print(f"{label}")
@@ -479,7 +479,7 @@ def run_command(dry_run: bool) -> None:
                         errors += 1
 
             if not dry_run:
-                save_progress(processed)
+                save_progress(processed, 0)
 
             batch = []
 
