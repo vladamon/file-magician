@@ -1,6 +1,7 @@
 .env
 categories.txt
 progress.json
+categorize_debug.log
 __pycache__/
 *.pyc
 .DS_Store

@@ -296,6 +296,10 @@ def parse_json_array(text: str) -> list[str]:
 
 def parse_json_object(text: str) -> dict[str, str]:
     text = text.strip()
+    # strip markdown code fences (```json ... ``` or ``` ... ```)
+    if text.startswith("```"):
+        text = re.sub(r"^```[^\n]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text).strip()
     try:
         result = json.loads(text)
         if isinstance(result, dict):
@@ -409,6 +413,9 @@ def classify_batch(
     client: openai.OpenAI,
     batch: list[tuple[Path, str]],
     categories: list[str],
+    *,
+    debug: bool = False,
+    batch_num: int = 0,
 ) -> tuple[dict[str, str], int]:
     """Returns (classifications, total_tokens_used)."""
     cat_list = ", ".join(f'"{c}"' for c in categories)
@@ -425,18 +432,38 @@ def classify_batch(
         'Example: {"report.pdf": "Finance", "letter.docx": "Personal"}'
     )
 
+    if debug:
+        with open("categorize_debug.log", "a") as log:
+            log.write(f"\n{'='*60}\n")
+            log.write(f"BATCH {batch_num} — {len(batch)} files\n")
+            log.write(f"{'='*60}\n")
+            for path, snippet in batch:
+                preview = (snippet or "(no text)")[:80].replace("\n", " ")
+                log.write(f"  {path.name}  |  {preview!r}\n")
+            log.write(f"\n--- PROMPT SENT ---\n{prompt}\n")
+
     response = client.chat.completions.create(
         model=MODEL,
         max_tokens=800,
         messages=[{"role": "user", "content": prompt}],
     )
-    result = parse_json_object(response.choices[0].message.content)
+    raw = response.choices[0].message.content
+    result = parse_json_object(raw)
+
+    if debug:
+        with open("categorize_debug.log", "a") as log:
+            log.write(f"\n--- RAW RESPONSE ---\n{raw}\n")
+            if result:
+                log.write(f"\n--- PARSED OK ---\n{result}\n")
+            else:
+                log.write(f"\n--- PARSE FAILED — falling back to _Unsorted ---\n")
+
     if not result:
         result = {path.name: "_Unsorted" for path, _ in batch}
     return result, response.usage.total_tokens
 
 
-def run_command(dry_run: bool) -> None:
+def run_command(dry_run: bool, debug: bool = False) -> None:
     categories = load_categories()
     valid_categories = set(categories) | {"_Unsorted", "_Other"}
     client = openai.OpenAI()
@@ -500,7 +527,9 @@ def run_command(dry_run: bool) -> None:
                 batch_tokens = 0
             else:
                 try:
-                    classifications, batch_tokens = classify_batch(client, batch, categories)
+                    classifications, batch_tokens = classify_batch(
+                        client, batch, categories, debug=debug, batch_num=batch_num
+                    )
                 except Exception as e:
                     print(f"  API error: {e} — marking batch as _Unsorted")
                     classifications = {p.name: "_Unsorted" for p, _ in batch}
@@ -566,13 +595,17 @@ def main() -> None:
         "--dry-run", action="store_true",
         help="Preview moves without touching any files",
     )
+    run_p.add_argument(
+        "--debug", action="store_true",
+        help="Log each batch's files and raw API response to categorize_debug.log",
+    )
 
     args = parser.parse_args()
 
     if args.command == "sample":
         sample_command()
     elif args.command == "run":
-        run_command(dry_run=args.dry_run)
+        run_command(dry_run=args.dry_run, debug=args.debug)
 
 
 if __name__ == "__main__":
