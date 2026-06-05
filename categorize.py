@@ -36,7 +36,7 @@ DOCUMENT_EXTENSIONS = {
 
 SAMPLE_SIZE = 200
 SNIPPET_CHARS = 400   # chars extracted per file for sampling / classification
-BATCH_SIZE = 20       # files per Haiku API call
+BATCH_SIZE = 20       # files per API batch
 
 SCRIPT_DIR = Path(__file__).parent
 CATEGORIES_FILE = SCRIPT_DIR / "categories.txt"
@@ -105,7 +105,7 @@ class RunGuardian:
         return True, ""
 
     def print_stats(self) -> None:
-        est_cost = (self.tokens_used * 0.15) / 1_000_000
+        est_cost = (self.tokens_used * 0.225) / 1_000_000  # blended ~75% input / 25% output
         print(f"\n  Tokens used : {self.tokens_used:,} / {self.token_budget:,}")
         print(f"  Est. cost   : ${est_cost:.4f}")
         if self._category_counts:
@@ -280,7 +280,7 @@ def save_progress(processed: set[str], tokens_used: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Haiku helpers
+# OpenAI helpers
 # ---------------------------------------------------------------------------
 
 def parse_json_array(text: str) -> list[str]:
@@ -495,12 +495,16 @@ def run_command(dry_run: bool) -> None:
             batch_num = idx // BATCH_SIZE + 1
             print(f"Classifying batch {batch_num}/{total_batches} ({len(batch)} files)...")
 
-            try:
-                classifications, batch_tokens = classify_batch(client, batch, categories)
-            except Exception as e:
-                print(f"  API error: {e} — marking batch as _Unsorted")
-                classifications = {p.name: "_Unsorted" for p, _ in batch}
+            if dry_run:
+                classifications = {path.name: "(dry-run)" for path, _ in batch}
                 batch_tokens = 0
+            else:
+                try:
+                    classifications, batch_tokens = classify_batch(client, batch, categories)
+                except Exception as e:
+                    print(f"  API error: {e} — marking batch as _Unsorted")
+                    classifications = {p.name: "_Unsorted" for p, _ in batch}
+                    batch_tokens = 0
 
             if not dry_run:
                 guardian.record_usage(batch_tokens)
@@ -537,7 +541,7 @@ def run_command(dry_run: bool) -> None:
             batch = []
 
     summary = "Would move" if dry_run else "Moved"
-    count = moved + len(other_files) if dry_run else moved
+    count = len(other_files) + len(doc_files) if dry_run else moved
     print(f"\n{summary}: {count} files | Errors: {errors}")
 
     if not dry_run and errors == 0:
