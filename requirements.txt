@@ -1,0 +1,5 @@
+anthropic
+pypdf
+python-docx
+openpyxl
+python-pptx
