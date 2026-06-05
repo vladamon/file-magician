@@ -73,8 +73,8 @@ class RunGuardian:
     def total_classified(self) -> int:
         return sum(self._category_counts.values())
 
-    def record_usage(self, total_tokens: int) -> None:
-        self.tokens_used += total_tokens
+    def record_usage(self, batch_tokens: int) -> None:
+        self.tokens_used += batch_tokens
 
     def record_batch(self, classifications: dict[str, str]) -> None:
         for cat in classifications.values():

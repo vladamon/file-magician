@@ -76,6 +76,16 @@ def test_skew_does_not_trigger_for_unsorted():
     assert ok
 
 
+def test_skew_not_checked_when_no_unsorted_files():
+    # When zero files land in _Unsorted, the skew check is skipped entirely
+    # — a single dominant real category with perfect classification is fine.
+    g = make_guardian()
+    # 25 files, all Work — 100% skew — but unsorted == 0, so no check fires
+    g.record_batch({f"f{i}.pdf": "Work" for i in range(25)})
+    ok, _ = g.check()
+    assert ok
+
+
 def test_total_classified_spans_batches():
     g = make_guardian()
     g.record_batch({"a.pdf": "Work", "b.pdf": "Finance"})
