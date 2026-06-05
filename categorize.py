@@ -7,6 +7,7 @@ Pass 2:  python categorize.py run [--dry-run]
 """
 import argparse
 import json
+import math
 import os
 import random
 import re
@@ -219,6 +220,41 @@ def unique_dest(dest: Path) -> Path:
         if not candidate.exists():
             return candidate
         counter += 1
+
+
+# ---------------------------------------------------------------------------
+# Pre-flight estimate
+# ---------------------------------------------------------------------------
+
+def pre_flight_estimate(
+    doc_files: list[Path],
+    other_files: list[Path],
+    guardian: RunGuardian,
+) -> bool:
+    """Print cost/token estimate and ask user to confirm. Returns True to proceed."""
+    batch_count = math.ceil(len(doc_files) / BATCH_SIZE) if doc_files else 0
+    est_input_tokens = int(len(doc_files) * SNIPPET_CHARS / 4) + batch_count * 200
+    est_output_tokens = batch_count * 200
+    est_total = est_input_tokens + est_output_tokens
+    # gpt-4o-mini: $0.15/1M input, $0.60/1M output
+    est_cost = (est_input_tokens * 0.15 + est_output_tokens * 0.60) / 1_000_000
+    tokens_remaining = guardian.token_budget - guardian.tokens_used
+
+    print("Pre-flight estimate")
+    print(f"  Documents to classify : {len(doc_files):,}")
+    print(f"  Other files (_Other)  : {len(other_files):,}")
+    print(f"  API batches           : {batch_count:,}")
+    print(f"  Est. tokens           : ~{est_total:,}")
+    print(f"  Est. cost             : ~${est_cost:.4f}")
+    print(f"  Budget remaining      : {tokens_remaining:,} tokens")
+    if est_total > tokens_remaining:
+        print()
+        print("  Warning: estimated usage exceeds remaining budget.")
+        print("  The run will process files until the budget is reached, then pause.")
+        print("  Raise TOKEN_BUDGET in .env to increase the cap.")
+    print()
+    answer = input("Proceed? [y/N] ").strip().lower()
+    return answer == "y"
 
 
 # ---------------------------------------------------------------------------
