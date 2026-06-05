@@ -439,8 +439,13 @@ def classify_batch(
 def run_command(dry_run: bool) -> None:
     categories = load_categories()
     valid_categories = set(categories) | {"_Unsorted", "_Other"}
-    client = anthropic.Anthropic()
-    processed, _ = load_progress()
+    client = openai.OpenAI()
+    processed, tokens_used = load_progress()
+
+    token_budget = int(os.getenv("TOKEN_BUDGET", "2000000"))
+    max_unsorted_rate = float(os.getenv("MAX_UNSORTED_RATE", "0.50"))
+    max_skew_rate = float(os.getenv("MAX_SKEW_RATE", "0.80"))
+    guardian = RunGuardian(token_budget, max_unsorted_rate, max_skew_rate, initial_tokens=tokens_used)
 
     label = "DRY RUN — no files will be moved" if dry_run else "LIVE RUN — files will be moved"
     print(f"{label}")
@@ -451,14 +456,18 @@ def run_command(dry_run: bool) -> None:
     remaining = [f for f in all_files if str(f) not in processed]
     print(f"Total files: {len(all_files)}  |  Already processed: {len(processed)}  |  Remaining: {len(remaining)}\n")
 
+    doc_files = [f for f in remaining if is_document(f)]
+    other_files = [f for f in remaining if not is_document(f)]
+
     if not dry_run:
+        if not pre_flight_estimate(doc_files, other_files, guardian):
+            print("Aborted.")
+            return
         for cat in categories:
             (ORGANIZED_PATH / cat).mkdir(parents=True, exist_ok=True)
         (ORGANIZED_PATH / "_Unsorted").mkdir(parents=True, exist_ok=True)
         (ORGANIZED_PATH / "_Other").mkdir(parents=True, exist_ok=True)
 
-    doc_files = [f for f in remaining if is_document(f)]
-    other_files = [f for f in remaining if not is_document(f)]
     moved = errors = 0
 
     # Non-documents → _Other
@@ -487,10 +496,15 @@ def run_command(dry_run: bool) -> None:
             print(f"Classifying batch {batch_num}/{total_batches} ({len(batch)} files)...")
 
             try:
-                classifications = classify_batch(client, batch, categories)
+                classifications, batch_tokens = classify_batch(client, batch, categories)
             except Exception as e:
                 print(f"  API error: {e} — marking batch as _Unsorted")
                 classifications = {p.name: "_Unsorted" for p, _ in batch}
+                batch_tokens = 0
+
+            if not dry_run:
+                guardian.record_usage(batch_tokens)
+                guardian.record_batch(classifications)
 
             for path, _ in batch:
                 category = classifications.get(path.name, "_Unsorted")
@@ -510,12 +524,21 @@ def run_command(dry_run: bool) -> None:
                         errors += 1
 
             if not dry_run:
-                save_progress(processed, 0)
+                save_progress(processed, guardian.tokens_used)
+
+                ok, reason = guardian.check()
+                if not ok:
+                    print(f"\nGuardian: pausing run — {reason}")
+                    guardian.print_stats()
+                    print(f"\nProgress saved to {PROGRESS_FILE.name}.")
+                    print("Resume with:\n  python categorize.py run")
+                    sys.exit(0)
 
             batch = []
 
     summary = "Would move" if dry_run else "Moved"
-    print(f"\n{summary}: {moved + len(other_files) if dry_run else moved} files | Errors: {errors}")
+    count = moved + len(other_files) if dry_run else moved
+    print(f"\n{summary}: {count} files | Errors: {errors}")
 
     if not dry_run and errors == 0:
         PROGRESS_FILE.unlink(missing_ok=True)
