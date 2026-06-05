@@ -5,8 +5,6 @@ Two-pass document categorization for /Volumes/toshiba.
 Pass 1:  python categorize.py sample
 Pass 2:  python categorize.py run [--dry-run]
 """
-from __future__ import annotations
-
 import argparse
 import json
 import os
@@ -17,10 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-try:
-    import anthropic
-except ModuleNotFoundError:
-    anthropic = None  # type: ignore[assignment]
+import openai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -46,7 +41,7 @@ SCRIPT_DIR = Path(__file__).parent
 CATEGORIES_FILE = SCRIPT_DIR / "categories.txt"
 PROGRESS_FILE = SCRIPT_DIR / "progress.json"
 
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = "gpt-4o-mini"
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +274,7 @@ def parse_json_object(text: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def sample_command() -> None:
-    client = anthropic.Anthropic()
+    client = openai.OpenAI()
 
     print(f"Walking {DRIVE_PATH} ...")
     all_files = walk_files(DRIVE_PATH, skip_dirs={"_Organized"})
@@ -294,7 +289,7 @@ def sample_command() -> None:
         if text.strip():
             snippets.append(f"File: {path.name}\nContent: {text[:300]}")
 
-    print(f"Extracted text from {len(snippets)} files. Sending to Haiku in batches...")
+    print(f"Extracted text from {len(snippets)} files. Sending to model in batches...")
 
     raw_categories: list[str] = []
     total_batches = (len(snippets) + BATCH_SIZE - 1) // BATCH_SIZE
@@ -304,7 +299,7 @@ def sample_command() -> None:
         batch_num = i // BATCH_SIZE + 1
         print(f"  Batch {batch_num}/{total_batches} ...")
 
-        response = client.messages.create(
+        response = client.chat.completions.create(
             model=MODEL,
             max_tokens=400,
             messages=[{
@@ -319,11 +314,10 @@ def sample_command() -> None:
                 ),
             }],
         )
-        raw_categories.extend(parse_json_array(response.content[0].text))
+        raw_categories.extend(parse_json_array(response.choices[0].message.content))
 
-    # Consolidate
     print("\nConsolidating categories...")
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=300,
         messages=[{
@@ -337,7 +331,7 @@ def sample_command() -> None:
             ),
         }],
     )
-    final_categories = parse_json_array(response.content[0].text)
+    final_categories = parse_json_array(response.choices[0].message.content)
 
     if not final_categories:
         final_categories = ["Finance", "Personal", "Work", "Legal", "Medical", "Travel"]
@@ -376,13 +370,14 @@ def load_categories() -> list[str]:
 
 
 def classify_batch(
-    client: anthropic.Anthropic,
+    client: openai.OpenAI,
     batch: list[tuple[Path, str]],
     categories: list[str],
-) -> dict[str, str]:
+) -> tuple[dict[str, str], int]:
+    """Returns (classifications, total_tokens_used)."""
     cat_list = ", ".join(f'"{c}"' for c in categories)
     file_blocks = [
-        f"File: {path.name}\nContent: {(snippet or '(no text)' )[:300]}"
+        f"File: {path.name}\nContent: {(snippet or '(no text)')[:300]}"
         for path, snippet in batch
     ]
     prompt = (
@@ -394,15 +389,15 @@ def classify_batch(
         'Example: {"report.pdf": "Finance", "letter.docx": "Personal"}'
     )
 
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=800,
         messages=[{"role": "user", "content": prompt}],
     )
-    result = parse_json_object(response.content[0].text)
+    result = parse_json_object(response.choices[0].message.content)
     if not result:
         result = {path.name: "_Unsorted" for path, _ in batch}
-    return result
+    return result, response.usage.total_tokens
 
 
 def run_command(dry_run: bool) -> None:
