@@ -1,0 +1,6 @@
+.env
+categories.txt
+progress.json
+__pycache__/
+*.pyc
+.DS_Store
