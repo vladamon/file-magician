@@ -313,7 +313,7 @@ def sample_command() -> None:
     client = openai.OpenAI()
 
     print(f"Walking {DRIVE_PATH} ...")
-    all_files = walk_files(DRIVE_PATH, skip_dirs={"_Organized"})
+    all_files = walk_files(DRIVE_PATH, skip_dirs={"_Organized", "_deleted"})
     doc_files = [f for f in all_files if is_document(f)]
     print(f"Found {len(doc_files)} document files. Sampling {min(SAMPLE_SIZE, len(doc_files))}.")
 
@@ -452,7 +452,7 @@ def run_command(dry_run: bool) -> None:
     print(f"Categories : {', '.join(categories)}")
     print(f"Output     : {ORGANIZED_PATH}\n")
 
-    all_files = walk_files(DRIVE_PATH, skip_dirs={"_Organized"})
+    all_files = walk_files(DRIVE_PATH, skip_dirs={"_Organized", "_deleted"})
     remaining = [f for f in all_files if str(f) not in processed]
     print(f"Total files: {len(all_files)}  |  Already processed: {len(processed)}  |  Remaining: {len(remaining)}\n")
 
