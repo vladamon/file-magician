@@ -83,7 +83,7 @@ class RunGuardian:
                 f"token budget reached: {self.tokens_used:,}/{self.token_budget:,} tokens used"
             )
 
-        if self.total_classified >= 20:
+        if self.total_classified >= 60:  # wait for 3 batches before judging
             unsorted = self._category_counts.get("_Unsorted", 0)
             unsorted_rate = unsorted / self.total_classified
             if unsorted_rate > self.max_unsorted_rate:

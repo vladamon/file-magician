@@ -37,28 +37,28 @@ def test_budget_initial_tokens_cumulative():
 
 def test_unsorted_rate_above_threshold():
     g = make_guardian()
-    # 20 files: 11 _Unsorted = 55% > 50%
-    batch = {f"f{i}.pdf": "_Unsorted" for i in range(11)}
-    batch.update({f"g{i}.pdf": "Work" for i in range(9)})
+    # 61 files: 35 _Unsorted = 57% > 50% (must exceed 60-file minimum)
+    batch = {f"f{i}.pdf": "_Unsorted" for i in range(35)}
+    batch.update({f"g{i}.pdf": "Work" for i in range(26)})
     g.record_batch(batch)
     ok, reason = g.check()
     assert not ok
     assert "_Unsorted" in reason
 
 
-def test_unsorted_rate_not_checked_below_20_files():
+def test_unsorted_rate_not_checked_below_60_files():
     g = make_guardian()
-    # 19 files all _Unsorted — below the 20-file minimum, no check fires
-    g.record_batch({f"f{i}.pdf": "_Unsorted" for i in range(19)})
+    # 59 files all _Unsorted — below the 60-file minimum, no check fires
+    g.record_batch({f"f{i}.pdf": "_Unsorted" for i in range(59)})
     ok, _ = g.check()
     assert ok
 
 
 def test_skew_triggers_for_dominant_real_category():
     g = make_guardian()
-    # 25 files: 4 _Unsorted + 21 Work → Work is 84% of total > 80%
-    batch = {f"f{i}.pdf": "_Unsorted" for i in range(4)}
-    batch.update({f"g{i}.pdf": "Work" for i in range(21)})
+    # 62 files: 10 _Unsorted + 52 Work → Work is 84% of total > 80% (must exceed 60-file minimum)
+    batch = {f"f{i}.pdf": "_Unsorted" for i in range(10)}
+    batch.update({f"g{i}.pdf": "Work" for i in range(52)})
     g.record_batch(batch)
     ok, reason = g.check()
     assert not ok
