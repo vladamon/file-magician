@@ -5,6 +5,7 @@ Two-pass document categorization for /Volumes/toshiba.
 Pass 1:  python categorize.py sample
 Pass 2:  python categorize.py run [--dry-run]
 """
+from __future__ import annotations
 
 import argparse
 import json
@@ -16,7 +17,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-import anthropic
+try:
+    import anthropic
+except ModuleNotFoundError:
+    anthropic = None  # type: ignore[assignment]
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -40,6 +47,76 @@ CATEGORIES_FILE = SCRIPT_DIR / "categories.txt"
 PROGRESS_FILE = SCRIPT_DIR / "progress.json"
 
 MODEL = "claude-haiku-4-5-20251001"
+
+
+# ---------------------------------------------------------------------------
+# Guardian
+# ---------------------------------------------------------------------------
+
+class RunGuardian:
+    """Monitors token spend, unsorted rate, and category skew. Pauses on breach."""
+
+    def __init__(
+        self,
+        token_budget: int,
+        max_unsorted_rate: float,
+        max_skew_rate: float,
+        initial_tokens: int = 0,
+    ) -> None:
+        self.token_budget = token_budget
+        self.max_unsorted_rate = max_unsorted_rate
+        self.max_skew_rate = max_skew_rate
+        self.tokens_used = initial_tokens
+        self._category_counts: dict[str, int] = {}
+
+    @property
+    def total_classified(self) -> int:
+        return sum(self._category_counts.values())
+
+    def record_usage(self, total_tokens: int) -> None:
+        self.tokens_used += total_tokens
+
+    def record_batch(self, classifications: dict[str, str]) -> None:
+        for cat in classifications.values():
+            self._category_counts[cat] = self._category_counts.get(cat, 0) + 1
+
+    def check(self) -> tuple[bool, str]:
+        """Return (ok, reason). ok=False means pause the run."""
+        if self.tokens_used >= self.token_budget:
+            return False, (
+                f"token budget reached: {self.tokens_used:,}/{self.token_budget:,} tokens used"
+            )
+
+        if self.total_classified >= 20:
+            unsorted = self._category_counts.get("_Unsorted", 0)
+            unsorted_rate = unsorted / self.total_classified
+            if unsorted_rate > self.max_unsorted_rate:
+                return False, (
+                    f"_Unsorted rate {unsorted_rate:.1%} exceeds limit {self.max_unsorted_rate:.1%} "
+                    f"— categories may not match file content"
+                )
+
+            non_unsorted = {k: v for k, v in self._category_counts.items() if k != "_Unsorted"}
+            if non_unsorted and unsorted > 0:
+                max_cat = max(non_unsorted, key=non_unsorted.__getitem__)
+                skew = non_unsorted[max_cat] / self.total_classified
+                if skew > self.max_skew_rate:
+                    return False, (
+                        f"category '{max_cat}' has {skew:.1%} of files "
+                        f"(limit {self.max_skew_rate:.1%}) — taxonomy may be too narrow"
+                    )
+
+        return True, ""
+
+    def print_stats(self) -> None:
+        est_cost = (self.tokens_used * 0.15) / 1_000_000
+        print(f"\n  Tokens used : {self.tokens_used:,} / {self.token_budget:,}")
+        print(f"  Est. cost   : ${est_cost:.4f}")
+        if self._category_counts:
+            print(f"  Distribution ({self.total_classified} files):")
+            for cat, count in sorted(self._category_counts.items(), key=lambda x: -x[1]):
+                pct = count / self.total_classified * 100
+                print(f"    {cat:<22} {count:>5}  ({pct:.1f}%)")
 
 
 # ---------------------------------------------------------------------------
