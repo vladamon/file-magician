@@ -12,6 +12,24 @@ Photos are out of scope.
 
 ---
 
+## Quick start (Phase 2 only)
+
+Already done with deduplication? Jump straight to categorization:
+
+```bash
+pip install -r requirements.txt   # install dependencies
+cp .env.example .env              # create your local config
+# open .env and fill in OPENAI_API_KEY
+
+python categorize.py sample       # discover categories → writes categories.txt
+# open categories.txt and edit the list to your liking
+
+python categorize.py run --dry-run   # preview moves (free, no API calls)
+python categorize.py run             # live run — confirms cost before starting
+```
+
+---
+
 ## Phase 1: Deduplication
 
 ### Install tools
